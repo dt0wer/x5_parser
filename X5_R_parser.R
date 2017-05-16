@@ -5,21 +5,14 @@ options(java.parameters = "-Xmx8g")
 library(XLConnect)
 
 esxtop_convert <- function() {
-  w_list <- c("MSK-DPRO-FNR004", "MSK-DPRO-FNR024", "MSK-DPRO-FNR026",
-              "MSK-DPRO-FNR028", "MSK-DPRO-ORA111", "MSK-DPRO-ORA112",
-              "MSK-DPRO-ORA109", "MSK-DPRO-ORA084", "MSK-DPRO-FNR019",
-              "MSK-DPRO-FNR009", "MSK-DPRO-HPO002", "MSK-DPRO-HPO003",
-              "MSK-DPRO-ORA122", "MSK-DPRO-ORA123", "MSK-DPRO-ORA149",
-              "MSK-DPRO-HPO004", "MSK-DPRO-ORA134", "MSK-DPRO-ORA135")
   fl <- list.files(pattern="^msk.+csv", all.files=F, full.names=F, recursive=F)
   
   for(i in fl) {
     print(i)
-    esxtop <- esxtop_read(i) 
+    esxtop <- esxtop_read2(i) 
     
     if (length(esxtop) > 0)
-      write.csv(select(esxtop, 1, matches(paste(w_list, collapse="|"))), 
-                paste0("out_", i), sep = ",", dec = ".", row.names = F)
+      write.csv(esxtop, paste0("iops_", i), sep = ",", dec = ".", row.names = F)
   }
 }
 
@@ -29,19 +22,19 @@ esxtop_read <- function(f) {
   
   period <- 3 # seconds
   time_frame <- 13 # hours
-  s_time <- "04/26/2017 19:00"
+  s_time <- "04/27/2017 01:05"
   
   header <- colnames(fread(f, nrows = 0, header = T))
   
   s_string <- paste0("\\\\", 
-                     paste(unlist(strsplit(f, ".", fixed = T))[-4], 
+                     paste(unlist(strsplit(f, ".", fixed = T))[1], 
                            collapse = "."), 
                      "\\Group Cpu")
   
   sel <- substring(header, 1, nchar(s_string)) %chin% s_string
   
   out <- fread(f, sep = ",", header = F, dec = ".", stringsAsFactors = F, 
-               skip = s_time, nrows = time_frame*3600/period, 
+               skip = s_time, nrows = time_frame*3600/period,
                col.names = c("ts_string", header[sel]), 
                select = c(1, which(sel)))
   colnames(out) <- gsub("^.+Group\\s(.+)\\((\\d+):(.+)\\)\\\\(.+$)", 
@@ -52,36 +45,56 @@ esxtop_read <- function(f) {
     select(1, matches(paste(match_str, collapse="|")))
 }
 
-esxtop_read2 <- function(f) {
+esxtop_read_raw <- function(f) {
+  s_time <- "04/26/2017 22:05"
+  s_string_1 <- "MSK-DPRO-ORA109"
+  s_string_2 <- "% Used"
+  time_frame <- 100
+  
+  header <- colnames(fread(f, nrows = 0, header = T, stringsAsFactors = F))
+  
+  sel <- grepl(s_string_2, header) & grepl(s_string_1, header)
+    
+  out <- fread(f, sep = ",", header = F, dec = ".", stringsAsFactors = F, 
+               skip = s_time, nrows = time_frame,
+               col.names = c("ts_string", header[sel]), 
+               select = c(1, which(sel)))
+  
+  colnames(out) <- gsub("-", "_", gsub("\\s|%|:|\\(|\\)", ".", 
+                                       gsub("^\\\\{2}.+\\\\(.+)\\\\(.+)$", 
+                                            "\\1\\2", colnames(out))))
+  
+  out[, names(out) := lapply(.SD, type.convert, as.is = TRUE)]
+}
+
+esxtop_read2 <- function(f, w_list) {
+#  w_list <- c("MSK-DPRO-FNR004", "MSK-DPRO-FNR024", "MSK-DPRO-FNR026",
+              #"MSK-DPRO-FNR028", "MSK-DPRO-ORA111", "MSK-DPRO-ORA112",
+              #"MSK-DPRO-ORA109", "MSK-DPRO-ORA084", "MSK-DPRO-FNR019",
+              #"MSK-DPRO-FNR009", "MSK-DPRO-HPO002", "MSK-DPRO-HPO003",
+              #"MSK-DPRO-ORA122", "MSK-DPRO-ORA123", "MSK-DPRO-ORA149",
+              #"MSK-DPRO-HPO004", "MSK-DPRO-ORA134", "MSK-DPRO-ORA135")
   match_str <- c("\\Commands/sec")
   
   period <- 3 # seconds
-  time_frame <- 1 # hours
+  time_frame <- 13 # hours
   s_time <- "04/26/2017 19:00"
   
   header <- colnames(fread(f, nrows = 0, header = T))
   
-  s_string <- paste0("\\\\", 
-                     paste(unlist(strsplit(f, ".", fixed = T))[-4], 
-                           collapse = "."), 
-                     "\\Physical Disk Per-Device-Per-World")
-  
-  sel <- substring(header, 1, nchar(s_string)) %chin% s_string
+  sel <- grepl(paste(w_list, collapse="|"), header) & 
+    grepl(paste(match_str, collapse="|"), header) &
+    !grepl("scsi", header)
   
   out <- fread(f, sep = ",", header = F, dec = ".", stringsAsFactors = F, 
                skip = s_time, nrows = time_frame*3600/period, 
                col.names = c("ts_string", header[sel]), 
                select = c(1, which(sel)))
   
-  #  pdisk <- melt(out, id.vars = 1) %>% 
-  #    mutate(lun = gsub("^.+\\((.+\\d+:C\\d+:T\\d+:L\\d+).+$", "\\1", variable),
-  #           world = gsub("^.+-(\\d+)\\).+$", "\\1", variable),
-  #           measure = gsub("^.+\\\\(.+)$", "\\1", variable)) %>%
-  #    filter(measure %in% pdisk_filter) %>%
-  #    select(ts = 1, world, lun, measure, value) %>% arrange(ts, world, lun)
-  
-  out[, names(out) := lapply(.SD, type.convert, as.is = TRUE)] %>% 
-    select(1, matches(paste(match_str, collapse="|")))
+  colnames(out) <- gsub("-", "_", gsub("\\s|%|:|\\(|\\)", ".", 
+                                       gsub("^\\\\{2}.+\\\\(.+)\\\\(.+)$", 
+                                            "\\1\\2", colnames(out))))
+  out[, names(out) := lapply(.SD, type.convert, as.is = TRUE)]
 }
 
 outToExcel <- function(x) {
