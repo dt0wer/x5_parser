@@ -5,14 +5,26 @@ options(java.parameters = "-Xmx8g")
 library(XLConnect)
 
 esxtop_convert <- function() {
+#    w_list <- c("MSK-DPRO-FNR004", "MSK-DPRO-FNR024", "MSK-DPRO-FNR026",
+#                "MSK-DPRO-FNR028", "MSK-DPRO-ORA111", "MSK-DPRO-ORA112",
+#                "MSK-DPRO-ORA109", "MSK-DPRO-ORA084", "MSK-DPRO-FNR019",
+#                "MSK-DPRO-FNR009", "MSK-DPRO-HPO002", "MSK-DPRO-HPO003",
+#                "MSK-DPRO-ORA122", "MSK-DPRO-ORA123", "MSK-DPRO-ORA149",
+#                "MSK-DPRO-HPO004", "MSK-DPRO-ORA134", "MSK-DPRO-ORA135")
+
+      w_list <- c("MSK-DPRO-APP199", "MSK-DPRO-ORA155", "MSK-DPRO-ORA085",
+                  "MSK-DPRO-FNR002", "MSK-DPRO-FNR003", "MSK-DPRO-FNR014",
+                  "MSK-DPRO-FNR015")
+    
   fl <- list.files(pattern="^msk.+csv", all.files=F, full.names=F, recursive=F)
   
   for(i in fl) {
     print(i)
-    esxtop <- esxtop_read2(i) 
+    esxtop <- esxtop_read2(i, w_list) 
     
     if (length(esxtop) > 0)
-      write.csv(esxtop, paste0("iops_", i), sep = ",", dec = ".", row.names = F)
+      write.csv(esxtop, paste0("full_", i), sep = ",", dec = ".", 
+                row.names = F)
   }
 }
 
@@ -45,46 +57,23 @@ esxtop_read <- function(f) {
     select(1, matches(paste(match_str, collapse="|")))
 }
 
-esxtop_read_raw <- function(f) {
-  s_time <- "04/26/2017 22:05"
-  s_string_1 <- "MSK-DPRO-ORA109"
-  s_string_2 <- "% Used"
-  time_frame <- 100
-  
-  header <- colnames(fread(f, nrows = 0, header = T, stringsAsFactors = F))
-  
-  sel <- grepl(s_string_2, header) & grepl(s_string_1, header)
-    
-  out <- fread(f, sep = ",", header = F, dec = ".", stringsAsFactors = F, 
-               skip = s_time, nrows = time_frame,
-               col.names = c("ts_string", header[sel]), 
-               select = c(1, which(sel)))
-  
-  colnames(out) <- gsub("-", "_", gsub("\\s|%|:|\\(|\\)", ".", 
-                                       gsub("^\\\\{2}.+\\\\(.+)\\\\(.+)$", 
-                                            "\\1\\2", colnames(out))))
-  
-  out[, names(out) := lapply(.SD, type.convert, as.is = TRUE)]
-}
 
 esxtop_read2 <- function(f, w_list) {
-#  w_list <- c("MSK-DPRO-FNR004", "MSK-DPRO-FNR024", "MSK-DPRO-FNR026",
-              #"MSK-DPRO-FNR028", "MSK-DPRO-ORA111", "MSK-DPRO-ORA112",
-              #"MSK-DPRO-ORA109", "MSK-DPRO-ORA084", "MSK-DPRO-FNR019",
-              #"MSK-DPRO-FNR009", "MSK-DPRO-HPO002", "MSK-DPRO-HPO003",
-              #"MSK-DPRO-ORA122", "MSK-DPRO-ORA123", "MSK-DPRO-ORA149",
-              #"MSK-DPRO-HPO004", "MSK-DPRO-ORA134", "MSK-DPRO-ORA135")
-  match_str <- c("\\Commands/sec")
+  match_str_cpu <- c("% Used", "Ready", "CoStop")
+  match_str_vdisk <- c("\\Commands/sec","MBytes Read/sec", "MBytes Written/sec")
   
   period <- 3 # seconds
   time_frame <- 13 # hours
-  s_time <- "04/26/2017 19:00"
+  s_time <- "06/01/2017 21:"
   
   header <- colnames(fread(f, nrows = 0, header = T))
   
   sel <- grepl(paste(w_list, collapse="|"), header) & 
-    grepl(paste(match_str, collapse="|"), header) &
-    !grepl("scsi", header)
+    ((grepl(paste(match_str_vdisk, collapse="|"), header) &
+       !grepl("scsi", header)) | 
+       ((grepl(paste(match_str_cpu, collapse="|"), header) &
+           grepl("Group Cpu", header))))
+    
   
   out <- fread(f, sep = ",", header = F, dec = ".", stringsAsFactors = F, 
                skip = s_time, nrows = time_frame*3600/period, 
